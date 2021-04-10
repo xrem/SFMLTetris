@@ -16,6 +16,8 @@ const int rows = 20;
 const int columns = 10;
 
 int field[columns][rows]; // игровое поле
+int new_field[columns][rows]; // игровое поле после удаления строк
+bool rows_were_deleted = false;
 
 // Текущий тип нашей фигуры (индекс для figures)
 int ftype;
@@ -54,6 +56,22 @@ struct Point {
 
 Point tetramino[4];
 
+bool collision_check() {
+	for (int i = 0; i < 4; i++) {
+		if (tetramino[i].y >= (rows - 1)) {
+			return true;
+		}
+	}
+	for (int i = 0; i < 4; i++) {
+		int x = tetramino[i].x;
+		int y = tetramino[i].y;
+		if (field[x][y + 1] != -1) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool out_of_bounds(Point t[4]) {
 	bool out_of_bound = false;
 	for (int i = 0; i <= 3; i++) {
@@ -69,6 +87,46 @@ bool out_of_bounds(Point t[4]) {
 	return out_of_bound;
 };
 
+bool is_trying_to_replace(Point t[4]) {
+	for (int i = 0; i < 4; i++) {
+		int x = t[i].x;
+		int y = t[i].y;
+		if (field[x][y] != -1) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void delete_rows() {
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < columns; x++) {
+			new_field[x][y] = field[x][y];
+		}
+	}
+
+	for (int y = 0; y < rows; y++) {
+		bool have_empty_slots = false;
+		for (int x = 0; x < columns; x++) {
+			if (new_field[x][y] == -1) {
+				have_empty_slots = true;
+			}
+		}
+		if (!have_empty_slots) {
+			rows_were_deleted = true;
+			for (; y >= 0; y--) {
+				for (int x = 0; x < columns; x++) {
+					if (y == 0) {
+						new_field[x][y] = -1;
+					} else {
+						new_field[x][y] = new_field[x][y - 1];
+					}
+				}
+			}
+		}
+	}
+}
+
 void rotate() {
 	Point XO = tetramino[1];
 	Point new_tetramino[4];
@@ -78,7 +136,8 @@ void rotate() {
 		new_tetramino[i].x = new_x;
 		new_tetramino[i].y = new_y;
 	}
-	if (!out_of_bounds(new_tetramino)) {
+	if (!out_of_bounds(new_tetramino) 
+		&& !is_trying_to_replace(new_tetramino)) {
 		for (int i = 0; i <= 3; i++) {
 			tetramino[i] = new_tetramino[i];
 		}
@@ -96,7 +155,8 @@ void move() {
 		new_tetramino[i].x = tetramino[i].x + dx;
 		new_tetramino[i].y = tetramino[i].y + dy;
 	}
-	if (!out_of_bounds(new_tetramino)) {
+	if (!out_of_bounds(new_tetramino) 
+		&& !is_trying_to_replace(new_tetramino)) {
 		for (int i = 0; i <= 3; i++) {
 			tetramino[i].y = new_tetramino[i].y;
 			tetramino[i].x = new_tetramino[i].x;
@@ -112,6 +172,22 @@ void generate_new_tetramino()
 	for (int i = 0; i < 4; i++) {
 		tetramino[i].x = figures[ftype][i] % 2;
 		tetramino[i].y = (figures[ftype][i] / 2) - 1;
+	}
+}
+
+void draw_field(sf::Sprite sprite, sf::RenderWindow& window) {
+	for (int y = 0; y < rows; y++) {
+		for (int x = 0; x < columns; x++) {
+			if (field[x][y] == -1)
+			{
+				continue;
+			}
+			sprite.setTextureRect(IntRect(field[x][y] * 18, 0, 18, 18));
+			sprite.setPosition(x * width, y * height);
+			// Смещение относительно подложки.
+			sprite.move(70, 59);
+			window.draw(sprite);
+		}
 	}
 }
 
@@ -208,6 +284,44 @@ int main()
 		*/
 
 		move();
+		if (collision_check()) {
+			for (int i = 0; i < 4; i++) {
+				int x = tetramino[i].x;
+				int y = tetramino[i].y;
+				field[x][y] = ftype;
+			}
+			generate_new_tetramino();
+			// Удаляем уже полностью заполненные строчки.
+			delete_rows();
+		}
+
+		// Отрисовка поля
+		draw_field(sprite, window);
+
+		if (rows_were_deleted) {
+			window.display();
+			rows_were_deleted = false;
+			for (int y = 0; y < rows; y++) {
+				for (int x = 0; x < columns; x++) {
+					field[x][y] = new_field[x][y];
+				}
+			}
+
+			timer.restart();
+			while (timer.getElapsedTime().asSeconds() < 0.5f) {
+				continue;
+			}
+			timer.restart();
+
+			window.clear(Color::White);
+			window.draw(background);
+
+			draw_field(sprite, window);
+		}
+
+
+
+		// Отрисовка фигуры которой мы управляем
 		sprite.setTextureRect(IntRect(ftype * 18, 0, 18, 18));
 		for (int i = 0; i < 4; i++) {
 			int x = tetramino[i].x;
@@ -216,21 +330,6 @@ int main()
 			// Смещение относительно подложки.
 			sprite.move(70, 59);
 			window.draw(sprite);
-		}
-		
-		// Отрисовка поля
-		for (int y = 0; y < rows; y++) {
-			for (int x = 0; x < columns; x++) {
-				if (field[x][y] == -1)
-				{
-					continue;
-				}
-				sprite.setTextureRect(IntRect(field[x][y] * 18, 0, 18, 18));
-				sprite.setPosition(x * width, y * height);
-				// Смещение относительно подложки.
-				sprite.move(70, 59);
-				window.draw(sprite);
-			}
 		}
 
 		window.display();
