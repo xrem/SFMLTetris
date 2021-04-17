@@ -18,6 +18,8 @@ const int columns = 10;
 int field[columns][rows]; // игровое поле
 int new_field[columns][rows]; // игровое поле после удаления строк
 bool rows_were_deleted = false;
+bool able_to_place_tetramino = true;
+int points = 0;
 
 // Текущий тип нашей фигуры (индекс для figures)
 int ftype;
@@ -44,7 +46,7 @@ int figures[7][4] =
 // Дельта Х (Куда двигаться относительно горизонтали)
 int dx = 0;
 
-// Задержка перед сдвигом фигуры вниз.
+// Задержка перед с двигом фигуры вниз.
 float delay = 0.5f;
 // Создаем таймер
 sf::Clock timer;
@@ -55,16 +57,17 @@ struct Point {
 };
 
 Point tetramino[4];
+Point shadow_coords[4];
 
-bool collision_check() {
+bool collision_check(Point t[4]) {
 	for (int i = 0; i < 4; i++) {
-		if (tetramino[i].y >= (rows - 1)) {
+		if (t[i].y >= (rows - 1)) {
 			return true;
 		}
 	}
 	for (int i = 0; i < 4; i++) {
-		int x = tetramino[i].x;
-		int y = tetramino[i].y;
+		int x = t[i].x;
+		int y = t[i].y;
 		if (field[x][y + 1] != -1) {
 			return true;
 		}
@@ -113,6 +116,7 @@ void delete_rows() {
 			}
 		}
 		if (!have_empty_slots) {
+			points += 10;
 			rows_were_deleted = true;
 			for (; y >= 0; y--) {
 				for (int x = 0; x < columns; x++) {
@@ -191,24 +195,51 @@ void draw_field(sf::Sprite sprite, sf::RenderWindow& window) {
 	}
 }
 
-int main()
-{
-	srand(time(0));
-	for(int i = 0; i < columns; i++)
+void restart() {
+	for (int i = 0; i < columns; i++)
 	{
 		std::fill(std::begin(field[i]), std::end(field[i]), -1);
 	}
+	generate_new_tetramino();
+	dx = 0;
+	points = 0;
+	delay = 0.5f;
+	able_to_place_tetramino = true;
+}
+
+int main()
+{
+	srand(time(0));
+	restart();
 	RenderWindow window(VideoMode(320, 480), "Tetris", Style::Close);
 
 	// Создание и загрузка текстуры
 	Texture texture;
+	Texture texture_shadow;
 	Texture background_texture;
 	texture.loadFromFile("tiles.png");
+	texture_shadow.loadFromFile("tiles_shadow.png");
 	background_texture.loadFromFile("background.png");
 
 	// Создание спрайта
 	Sprite sprite(texture);
+	Sprite shadow(texture_shadow);
 	Sprite background(background_texture);
+
+	Font arial_font;
+	if (!arial_font.loadFromFile("C:\\Windows\\Fonts\\arial.ttf")) {
+		throw new std::exception("Unable to load arial.ttf font.");
+	}
+
+	Text text("Score: " + std::to_string(points), arial_font);
+	text.setCharacterSize(30);
+	text.setFillColor(Color::Black);
+	text.setPosition(70 + width + width, 20);
+
+	Text text2("Press enter to restart", arial_font);
+	text2.setCharacterSize(30);
+	text2.setFillColor(Color::Black);
+	text2.setPosition(18, 437);
 
 	generate_new_tetramino();
 
@@ -237,6 +268,11 @@ int main()
 				}
 				if (event.key.code == Keyboard::Down) {
 					delay = 0.5f;
+				}
+				if (event.key.code == Keyboard::Enter && !able_to_place_tetramino) {
+					restart();
+					text.setPosition(70 + width + width, 20);
+					window.setTitle("Tetris");
 				}
 			}
 
@@ -283,22 +319,46 @@ int main()
 		}
 		*/
 
-		move();
-		if (collision_check()) {
-			for (int i = 0; i < 4; i++) {
-				int x = tetramino[i].x;
-				int y = tetramino[i].y;
-				field[x][y] = ftype;
+		if (able_to_place_tetramino) {
+			move();
+			if (collision_check(tetramino)) {
+				for (int i = 0; i < 4; i++) {
+					int x = tetramino[i].x;
+					int y = tetramino[i].y;
+					field[x][y] = ftype;
+				}
+				generate_new_tetramino();
+				// Удаляем уже полностью заполненные строчки.
+				delete_rows();
+				for (int i = 0; i < 4; i++) {
+					int x = tetramino[i].x;
+					int y = tetramino[i].y + 1;
+					if (rows_were_deleted) {
+						if (new_field[x][y] != -1) {
+							able_to_place_tetramino = false;
+						}
+					}
+					else {
+						if (field[x][y] != -1) {
+							able_to_place_tetramino = false;
+						}
+					}
+				}
 			}
-			generate_new_tetramino();
-			// Удаляем уже полностью заполненные строчки.
-			delete_rows();
+			text.setString("Score: " + std::to_string(points));
+		} else {
+			sf::String game_over = "Game over! Points: " + std::to_string(points);
+			text.setString(game_over);
+			text.setPosition(4, 20);
+			window.setTitle(game_over);
+			window.draw(text2);
 		}
-
+		
 		// Отрисовка поля
 		draw_field(sprite, window);
 
 		if (rows_were_deleted) {
+			window.draw(text);
 			window.display();
 			rows_were_deleted = false;
 			for (int y = 0; y < rows; y++) {
@@ -323,6 +383,23 @@ int main()
 
 		// Отрисовка фигуры которой мы управляем
 		sprite.setTextureRect(IntRect(ftype * 18, 0, 18, 18));
+		shadow.setTextureRect(IntRect(ftype * 18, 0, 18, 18));
+		for (int i = 0; i < 4; i++) {
+			shadow_coords[i] = tetramino[i];
+		}
+		while (!collision_check(shadow_coords)) {
+			for (int i = 0; i < 4; i++) {
+				shadow_coords[i].y++;
+			}
+		}
+		for (int i = 0; i < 4; i++) {
+			int sx = shadow_coords[i].x;
+			int sy = shadow_coords[i].y;
+			shadow.setPosition(sx * width, sy * height);
+			// Смещение относительно подложки.
+			shadow.move(70, 59);
+			window.draw(shadow);
+		}
 		for (int i = 0; i < 4; i++) {
 			int x = tetramino[i].x;
 			int y = tetramino[i].y;
@@ -331,6 +408,8 @@ int main()
 			sprite.move(70, 59);
 			window.draw(sprite);
 		}
+
+		window.draw(text);
 
 		window.display();
 	}
